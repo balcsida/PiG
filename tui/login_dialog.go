@@ -55,6 +55,11 @@ type LoginDialog struct {
 	done            bool
 	cancelled       bool
 	onCancel        func()
+	// selector is the active select prompt, rendered at selectIndex; selectCh delivers the chosen index and closes on
+	// cancellation.
+	selector    *ExtensionSelectorComponent
+	selectIndex int
+	selectCh    chan int
 	// authURL is the shown sign-in URL, which `app.message.copy` copies; its two lines start at authURLIndex.
 	authURL       *AuthURL
 	authURLIndex  int
@@ -266,6 +271,37 @@ func (d *LoginDialog) showInput(prompt, placeholder string, secret, manual bool)
 	return d.inputCh
 }
 
+// ShowSelect appends a select prompt rendered as a list. Its returned channel delivers the chosen option's index and
+// closes on cancellation. Pi answers a login flow's select prompt with its selector (interactive-mode.ts
+// showLoginDialog, prompt type "select"); an extension that offers a known value, such as a proxy URL, uses it.
+func (d *LoginDialog) ShowSelect(prompt string, options []string) <-chan int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.selector = NewExtensionSelector(d.redactLocked(prompt), options)
+	d.selectCh = make(chan int, 1)
+	d.selectIndex = len(d.lines)
+	d.lines = append(d.lines, "")
+	d.Invalidate()
+	return d.selectCh
+}
+
+// handleSelectLocked routes a keystroke to the active select prompt. The caller holds d.mu.
+func (d *LoginDialog) handleSelectLocked(data string) {
+	d.selector.HandleInput(data)
+	if !d.selector.Done() {
+		return
+	}
+	if d.selector.Cancelled() {
+		close(d.selectCh)
+	} else {
+		index := d.selector.SelectedIndex()
+		d.lines[d.selectIndex] = "> " + d.selector.SelectedValue()
+		d.selectCh <- index
+		close(d.selectCh)
+	}
+	d.selector, d.selectCh = nil, nil
+}
+
 // HandleInput routes editing to the active prompt and cancels with the configured selector binding.
 func (d *LoginDialog) HandleInput(data string) {
 	d.mu.Lock()
@@ -285,6 +321,15 @@ func (d *LoginDialog) HandleInput(data string) {
 			close(d.inputCh)
 			d.inputCh = nil
 		}
+		if d.selectCh != nil {
+			close(d.selectCh)
+			d.selector, d.selectCh = nil, nil
+		}
+		return
+	}
+	if d.selector != nil {
+		d.handleSelectLocked(data)
+		d.Invalidate()
 		return
 	}
 	if d.authURL != nil && GetTUIKeybindings().Matches(data, "app.message.copy") {
@@ -311,6 +356,10 @@ func (d *LoginDialog) Render(width int) []string {
 		copy(d.lines[d.authURLIndex:d.authURLIndex+len(authLines)], authLines)
 	}
 	for i, line := range d.lines {
+		if d.selector != nil && i == d.selectIndex {
+			out = append(out, d.selector.Render(width)...)
+			continue
+		}
 		if d.inputActive && i == d.inputIndex {
 			input := d.input
 			// pig divergence (D80): a bounded preview shows the suffix and count, never the full secret.

@@ -322,8 +322,26 @@ func (m *InteractiveMode) runLoginRegisteredOAuth(loginCtx context.Context, prov
 			extension.CallInitiated(ctx)
 			return "", fmt.Errorf("%s has no options", value.Message)
 		}
+		// Pi answers a flow's select prompt with its selector (interactive-mode.ts showLoginDialog, type "select"), so an
+		// extension flow can offer a known value, such as the proxy URL of the previous login.
+		labels := make([]string, len(value.Options))
+		for i, option := range value.Options {
+			labels[i] = option.Label
+		}
+		ch := dlg.ShowSelect(value.Message, labels)
+		notify()
 		extension.CallInitiated(ctx)
-		return "", fmt.Errorf("interactive selection is not available for %s; use a provider-specific login command", provider.Name())
+		select {
+		case index, ok := <-ch:
+			if !ok || index < 0 || index >= len(value.Options) {
+				return "", errLoginCancelled
+			}
+			return value.Options[index].ID, nil
+		case <-ctx.Done():
+			return "", errLoginCancelled
+		case <-loginCtx.Done():
+			return "", loginCtx.Err()
+		}
 	}
 
 	cb := ai.OAuthLoginCallbacks{

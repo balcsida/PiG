@@ -50,6 +50,12 @@ func authContextCallback(auth ai.AuthContext) nativeProviderCallback {
 	}
 }
 
+// apiKeyLogin runs the provider object's own apiKey.login with the login dialog's prompts, as Pi's
+// showApiKeyLoginDialog does.
+func (p *nativeProviderProxy) apiKeyLogin(ctx context.Context, interaction ai.AuthInteraction) (ai.Credential, error) {
+	return nativeObjectValue[ai.Credential](p, ctx, "auth.apiKey.login", map[string]any{}, nativeAuthInteraction(ctx, interaction))
+}
+
 func (p *nativeProviderProxy) auth(ctx context.Context) ai.ProviderAuth {
 	var result ai.ProviderAuth
 	if p.declaration.Auth.APIKey != nil {
@@ -62,6 +68,9 @@ func (p *nativeProviderProxy) auth(ctx context.Context) ai.ProviderAuth {
 			result.APIKey.Check = func(ctx context.Context, input ai.APIKeyAuthInput) (*ai.AuthCheck, error) {
 				return nativeObjectValue[*ai.AuthCheck](p, ctx, "auth.apiKey.check", map[string]any{"credential": input.Credential}, authContextCallback(input.Ctx))
 			}
+		}
+		if slices.Contains(p.declaration.Methods, "auth.apiKey.login") {
+			result.APIKey.Login = p.apiKeyLogin
 		}
 	}
 	if p.declaration.Auth.OAuth != nil {

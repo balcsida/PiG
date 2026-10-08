@@ -1,0 +1,5 @@
+### Fixed
+
+- `/login` offers "Sign in with an account" for a provider object (Pi's `registerNativeProvider`) whose auth declares an OAuth method, such as an extension that signs in through a proxy's SSO. The host already published the flow in the OAuth provider registry, but the registry recorded the registration without the method and rewrote it on every catalog refresh, so only the API-key login was listed. The registration now records the method and inherits the published flow, as a configuration registration's `oauth` does.
+- An account login's `select` prompt opens a selector in the login dialog, as Pi's does, instead of ending the login as cancelled. Flows that offer the proxy URL of the previous login, or a choice of teams, work in PiG.
+- A provider object's own `apiKey.login` runs in the login dialog, as Pi's `showApiKeyLoginDialog` runs it, so a provider that asks for its base URL before the key stores both. Without a declared login the generic API-key prompt applies, as before.

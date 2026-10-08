@@ -324,3 +324,39 @@ func TestLoginDialogManualInputLayout(t *testing.T) {
 		t.Fatalf("manual input label=%q want=%q", lines[3:4], wantLabel)
 	}
 }
+
+// Pi answers a login flow's select prompt with its selector (interactive-mode.ts showLoginDialog, type "select").
+func TestLoginDialog_SelectPrompt(t *testing.T) {
+	dlg := NewLoginDialog("Test", nil)
+	ch := dlg.ShowSelect("LiteLLM proxy URL:", []string{"https://a.example (settings)", "Enter a different URL…"})
+	rendered := widthx.StripAnsi(strings.Join(dlg.Render(120), "\n"))
+	if !strings.Contains(rendered, "LiteLLM proxy URL:") || !strings.Contains(rendered, "Enter a different URL") {
+		t.Fatalf("select prompt is not rendered:\n%s", rendered)
+	}
+	dlg.HandleInput("\x1b[B") // down
+	dlg.HandleInput("\r")
+	index, ok := <-ch
+	if !ok || index != 1 {
+		t.Fatalf("expected index 1, got %d (ok=%v)", index, ok)
+	}
+	if _, more := <-ch; more {
+		t.Fatal("the select channel stays open after the answer")
+	}
+	rendered = widthx.StripAnsi(strings.Join(dlg.Render(120), "\n"))
+	if !strings.Contains(rendered, "> Enter a different URL") {
+		t.Fatalf("the chosen option is not kept in the dialog history:\n%s", rendered)
+	}
+}
+
+func TestLoginDialog_SelectCancel(t *testing.T) {
+	var cancelCalled bool
+	dlg := NewLoginDialog("Test", func() { cancelCalled = true })
+	ch := dlg.ShowSelect("Select a team:", []string{"a", "b"})
+	dlg.HandleInput("\x1b")
+	if _, ok := <-ch; ok {
+		t.Fatal("a cancelled select prompt delivered a value")
+	}
+	if !dlg.Cancelled() || !cancelCalled {
+		t.Fatal("cancelling the select prompt did not cancel the login")
+	}
+}

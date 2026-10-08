@@ -99,9 +99,37 @@ func (p *nativeProviderProxy) carrier() *extension.NativeProvider {
 		ResolveRefreshCredential: p.refreshCredential,
 		RefreshModels:            p.refreshModels,
 		Stream:                   p.stream,
+		OAuth:                    p.nativeProviderOAuth(p.declaration.OAuth),
+		APIKey:                   p.nativeProviderAPIKey(),
 	}
 	p.operations(carrier)
 	return carrier
+}
+
+// nativeProviderAPIKey names the declared API-key login method for the registry, with the provider object's own
+// login when it declares one.
+func (p *nativeProviderProxy) nativeProviderAPIKey() *extension.NativeProviderAPIKey {
+	if p.declaration.Auth == nil || p.declaration.Auth.APIKey == nil {
+		return nil
+	}
+	method := &extension.NativeProviderAPIKey{Name: p.declaration.Auth.APIKey.Name}
+	if slices.Contains(p.declaration.Methods, "auth.apiKey.login") {
+		method.Login = p.apiKeyLogin
+	}
+	return method
+}
+
+// nativeProviderOAuth names the declared account login method for the registry. The flow itself is published by
+// publishNativeProvider into the OAuth provider registry.
+func (p *nativeProviderProxy) nativeProviderOAuth(declared *ProviderOAuthConfig) *extension.NativeProviderOAuth {
+	if declared == nil {
+		return nil
+	}
+	method := &extension.NativeProviderOAuth{Name: declared.Name, IsSubscription: declared.IsSubscription}
+	if p.declaration.Auth != nil && p.declaration.Auth.OAuth != nil && p.declaration.Auth.OAuth.LoginLabel != nil {
+		method.LoginLabel = *p.declaration.Auth.OAuth.LoginLabel
+	}
+	return method
 }
 
 func (p *nativeProviderProxy) stream(ctx context.Context, model *ai.Model, transcript ai.TranscriptContext, options ai.StreamOptions, simple bool) (*ai.AssistantMessageEventStream, error) {

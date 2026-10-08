@@ -26,8 +26,7 @@ func (r *ModelRegistry) RegisterNativeProvider(ctx context.Context, p *extension
 	if p == nil || p.ID == "" || p.Stream == nil || p.CheckAuth == nil || p.ResolveAuth == nil || p.ResolveRefreshCredential == nil {
 		return errors.New("incomplete native provider")
 	}
-	config := extension.ProviderConfig{Name: p.Name, BaseURL: p.BaseURL, Models: p.Models}
-	parsed, ok := providerConfigFromRegistration(config)
+	parsed, ok := nativeProviderConfig(p, p.Models)
 	if !ok {
 		return errors.New("invalid native provider models")
 	}
@@ -60,6 +59,19 @@ func (r *ModelRegistry) RegisterNativeProvider(ctx context.Context, p *extension
 	r.syncRegistration(p.ID, nil)
 	listener.publish()
 	return nil
+}
+
+// nativeProviderConfig records a provider object's registration: its catalog and the OAuth method it declares. Pi
+// composes a provider object's auth from the object itself (model-runtime.ts registerNativeProvider), so its oauth
+// is the provider's account login. The host published that flow in the OAuth provider registry; recording the
+// method here lets registryAuthConfig inherit it, as it does for a configuration registration's oauth. Every path
+// that rewrites the registration goes through here, so a catalog refresh or publication cannot drop the method.
+func nativeProviderConfig(p *extension.NativeProvider, models []extension.ProviderModelConfig) (providerConfig, bool) {
+	parsed, ok := providerConfigFromRegistration(extension.ProviderConfig{Name: p.Name, BaseURL: p.BaseURL, Models: models})
+	if ok && p.OAuth != nil {
+		parsed.OAuth = &oauthProviderConfig{Name: p.OAuth.Name, HasLogin: true}
+	}
+	return parsed, ok
 }
 
 func (r *ModelRegistry) NativeProvider(id string) *extension.NativeProvider {
@@ -173,7 +185,7 @@ func (r *ModelRegistry) refreshNativeProvider(parent context.Context, p *extensi
 			}
 		}
 		if publication.Models != nil {
-			parsed, ok := providerConfigFromRegistration(extension.ProviderConfig{Name: p.Name, BaseURL: p.BaseURL, Models: *publication.Models})
+			parsed, ok := nativeProviderConfig(p, *publication.Models)
 			if !ok {
 				return errors.New("invalid native model publication")
 			}
@@ -245,7 +257,7 @@ func (r *ModelRegistry) refreshNativeProvider(parent context.Context, p *extensi
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	parsed, ok := providerConfigFromRegistration(extension.ProviderConfig{Name: p.Name, BaseURL: p.BaseURL, Models: models})
+	parsed, ok := nativeProviderConfig(p, models)
 	if !ok {
 		return errors.New("invalid native provider refreshed models")
 	}

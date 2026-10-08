@@ -27,6 +27,28 @@ type NativeProvider struct {
 	// upstream: pi-ai Provider.generateImages, Provider.classify
 	GenerateImages func(context.Context, *ai.ImageModel, ai.ImagesContext, ai.ImagesOptions) (ai.AssistantImages, error)
 	Classify       func(context.Context, *ai.ClassifierModel, ai.ClassifierContext, ai.ClassifierOptions) (ai.ClassifierResult, error)
+	// OAuth is the account login method the provider object declares (its auth.oauth). The host publishes the flow
+	// itself in the OAuth provider registry; the registry needs only to know the method exists to compose it into the
+	// provider's auth, as it does for a configuration registration's oauth.
+	OAuth *NativeProviderOAuth
+	// APIKey is the API-key login method the provider object declares: its name, and its own login when it has one.
+	// Resolution and checks stay behind CheckAuth and ResolveAuth; the registry needs the method to list and run the
+	// login, as Pi runs a provider's own apiKey.login.
+	APIKey *NativeProviderAPIKey
+}
+
+// NativeProviderAPIKey names a provider object's API-key login method.
+type NativeProviderAPIKey struct {
+	Name  string
+	Login func(context.Context, ai.AuthInteraction) (ai.Credential, error)
+}
+
+// NativeProviderOAuth names a provider object's account login method.
+type NativeProviderOAuth struct {
+	Name           string
+	IsSubscription bool
+	// LoginLabel is the flow's own sign-in label, shown where Pi shows provider.auth.oauth.loginLabel.
+	LoginLabel string
 }
 
 type NativeProviderPublication struct {

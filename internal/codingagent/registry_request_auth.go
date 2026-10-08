@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/MichaelKinsy/PiG/coding/extension"
 )
 
 func (r *ModelRegistry) registryAuthConfig(id string) (ai.ProviderAuth, providerConfig, bool) {
@@ -25,10 +26,20 @@ func (r *ModelRegistry) registryAuthConfig(id string) (ai.ProviderAuth, provider
 	if !configured {
 		return base, config, baseErr == nil
 	}
+	// A provider object's own API-key method is its base: Pi composes the object's auth from the object itself. Without
+	// it, a registration that also declares oauth would read as OAuth-only and lose its API-key login.
+	if native := r.native[id].provider; native != nil && native.APIKey != nil && base.APIKey == nil {
+		base.APIKey = nativeAPIKeyAuth(native)
+	}
 	// An extension registration's oauth is the provider's account login (`extension?.oauth ?? base.auth.oauth`); the bridge
 	// publishes its flow in the OAuth provider registry, so the registration inherits that flow when the catalog has none.
 	if base.OAuth == nil && config.OAuth != nil && config.OAuth.HasLogin {
 		base.OAuth, _ = ai.OAuthProviderAuth(id)
+		if native := r.native[id].provider; native != nil && native.OAuth != nil && native.OAuth.LoginLabel != "" && base.OAuth != nil {
+			labelled := *base.OAuth
+			labelled.LoginLabel = native.OAuth.LoginLabel
+			base.OAuth = &labelled
+		}
 	}
 	return ai.ProviderAuth{APIKey: composeAPIKeyAuth(id, base, config), OAuth: composeOAuthAuth(id, base.OAuth, config)}, config, true
 }
@@ -244,4 +255,20 @@ func (r *ModelRegistry) CompatibilityRequestHeaders(model *ai.Model) (ai.Provide
 	headers := overlayHeaders(orderedHeaders(config.Headers, config.headerEntries), r.configuredModelHeaders(model))
 	resolved, err := resolveHeadersOrError(headers, fmt.Sprintf(`model "%s/%s"`, model.ProviderMeta.ProviderID, model.ID), nil)
 	return mergeConfiguredHeaders(ai.ProviderHeadersFromStrings(model.ProviderMeta.Headers), headers, resolved), authHeaderEnabled(config), err
+}
+
+// nativeAPIKeyAuth is a provider object's API-key method as an ai.APIKeyAuth: its declared name and login, with
+// checks and resolution routed through the object, as every other request for its auth is.
+func nativeAPIKeyAuth(p *extension.NativeProvider) *ai.APIKeyAuth {
+	return &ai.APIKeyAuth{
+		Name:  p.APIKey.Name,
+		Login: p.APIKey.Login,
+		Check: func(ctx context.Context, input ai.APIKeyAuthInput) (*ai.AuthCheck, error) {
+			return p.CheckAuth(ctx, input.Credential)
+		},
+		Resolve: func(ctx context.Context, input ai.APIKeyAuthInput) (*ai.AuthResult, error) {
+			result, _, err := p.ResolveAuth(ctx, input.Credential, ai.AuthResolutionOverrides{})
+			return result, err
+		},
+	}
 }
